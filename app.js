@@ -274,7 +274,7 @@ function vEps(){
 }
 function vPage(file){
   const src=PAGES[file];
-  if(src==null) return '<div class="empty">No page called <code>'+esc(file)+'.md</code> in <code>data/pages/</code>.</div>';
+  if(src==null) return '<div class="empty">No page called <code>'+esc(file)+'.md</code> in the repository root.</div>';
   return '<article class="prose">'+md(src)+"</article>";
 }
 function route(){
@@ -291,21 +291,21 @@ function route(){
 const grab=async(u,d)=>{ try{ const r=await fetch(u,{cache:"no-store"});
   if(!r.ok) throw 0; return u.endsWith(".json")?await r.json():await r.text(); }catch(e){ return d; } };
 async function start(){
-  SITE=await grab("data/site.json",SITE);
-  for(const n of SITE.nav||[]) if(n.type==="page") PAGES[n.file]=await grab("data/pages/"+n.file+".md","");
-  PAGES["home"]=await grab("data/pages/home.md","");
+  SITE=await grab("site.json",SITE);
+  for(const n of SITE.nav||[]) if(n.type==="page") PAGES[n.file]=await grab(""+n.file+".md","");
+  PAGES["home"]=await grab("home.md","");
   $(".brand").textContent=SITE.name||"Dice Cricket";
   document.title=SITE.name||"Dice Cricket";
   $("#foot").innerHTML=md(SITE.footer||"");
   $("nav.main").innerHTML=(SITE.nav||[]).map(n=>{ const k=navKey(n);
     return '<a href="#/'+k+'" data-k="'+esc(k)+'">'+esc(n.title)+"</a>"; }).join("");
-  L=await grab("data/league.json",null);
-  if(!L){ $("#view").innerHTML='<div class="empty">Could not load <code>data/league.json</code>.</div>'; return; }
-  EPS=await grab("data/episodes.json",[]);
+  L=await grab("league.json",null);
+  if(!L){ $("#view").innerHTML='<div class="empty">Could not load <code>league.json</code>.</div>'; return; }
+  EPS=await grab("episodes.json",[]);
   L.matches=L.matches||[];
   $("#seasonSub").textContent=(L.season||"")+(L.generated?" · updated "+L.generated:"");
   if(L.demo){ const b=document.createElement("div"); b.className="demo";
-    b.textContent="Demonstration data. This season was simulated to show the site working. Replace data/league.json with your first real export and this notice disappears.";
+    b.textContent="Demonstration data. This season was simulated to show the site working. Replace league.json with your first real export and this notice disappears.";
     $("nav.main").after(b); }
   addEventListener("hashchange",route); route();
 }
