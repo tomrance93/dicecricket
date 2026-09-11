@@ -52,9 +52,9 @@ function rows(){
       for(const e of inn.log||[]){
         const p=t.players.find(x=>x.name===e.name);
         out.push({match:m.id,round:m.round,inn:i+1,batTeam:inn.team,batter:e.name,
-          tags:(p&&p.tags)||{},bowler:e.bw,roll:e.r,appeal:e.kind!=="run",
-          survived:e.kind==="survive",wicket:e.kind==="wicket",how:e.how||null,
-          runs:e.kind==="run"?(e.v||0):0});
+          tags:(p&&p.tags)||{},bowler:e.bw,roll:e.r,appeal:e.kind!=="r",
+          survived:e.kind==="surv",wicket:e.kind==="w",how:e.how||null,
+          runs:e.kind==="r"?(e.v||0):0});
       }
     });
   }
@@ -68,38 +68,49 @@ function careers(rs){
     if(r.wicket){x.outs++; if(x.cur>x.hs)x.hs=x.cur; x.cur=0;}
     if(r.appeal)x.app++; if(r.survived)x.surv++; if(r.runs>0)x.scored.push(r.runs);
     const y=w[r.bowler]||(w[r.bowler]={name:r.bowler,wkts:0,balls:0,conc:0});
-    y.balls++; y.conc+=r.runs; if(r.wicket)y.wkts++;
+    y.balls++; y.conc+=r.runs; if(isBwWkt(r))y.wkts++;
   }
   Object.values(b).forEach(x=>{ if(x.cur>x.hs)x.hs=x.cur; });
   return {bat:Object.values(b),bowl:Object.values(w)};
 }
 const LBL={
- species:{human:"humans",undead:"the undead",construct:"constructs",animal:"animals",monster:"monsters",demigod:"demigods",egg:"eggs"},
- origin:{europe:"batters of European origin",asia:"batters of Asian origin",americas:"batters from the Americas",ocean:"batters of oceanic origin"},
- century:{"19":"batters written in the nineteenth century","18":"batters written in the eighteenth century","6":"batters from the sixth century","-8":"batters from the eighth century BC"},
- medium:{novel:"characters out of novels",myth:"figures from myth",legend:"figures from legend"},
- state:{living:"the living",undead:"the undead"},
- villain:{yes:"villains",no:"batters of good character"},
- handed:{left:"left-handers",right:"right-handers"}};
+ kind:{person:"people",animal:"animals",character:"fictional characters",abstract:"abstractions"},
+ era:{ancient:"figures from antiquity",medieval:"medieval figures","early-modern":"early modern figures",
+      modern:"figures of the modern age",living:"the currently living",eternal:"the timeless"},
+ origin:{europe:"Europeans",asia:"Asians",africa:"Africans",americas:"those from the Americas",nowhere:"those from nowhere"},
+ state:{living:"the living",dead:"the dead",undead:"the undead",missing:"the missing",fictional:"the fictional"},
+ field:{cricket:"cricketers",ruler:"heads of state",letters:"writers",music:"musicians",science:"scientists",
+        wild:"wild animals",military:"military men",screen:"film stars",stage:"performers",food:"cooks",
+        football:"footballers",flight:"aviators",mystic:"mystics",childrens:"children's characters",finance:"financial instruments"},
+ sex:{m:"men",f:"women",n:"the ungendered"}};
 function plural(v){v=String(v); if(/[^aeiou]y$/.test(v))return v.slice(0,-1)+"ies";
   if(/(s|x|z|ch|sh)$/.test(v))return v+"es"; return v+"s";}
 const lbl=(k,v)=>(LBL[k]&&LBL[k][v])||plural(v);
 
+const isBwWkt=r=>r.wicket&&r.how&&r.how.indexOf("run out")<0;
+function pronoun(n){for(const t of L.teams){const p=t.players.find(x=>x.name===n);
+  if(p&&p.tags)return p.tags.sex==="f"?"she":p.tags.sex==="n"?"it":"he";}return "he";}
 function curiosities(){
   const rs=rows(); if(rs.length<30) return [];
-  const c=careers(rs), keys=["species","origin","century","medium","state","villain","handed","role"], out=[];
+  const c=careers(rs), keys=["kind","era","origin","state","field","sex"], out=[];
+  const seenCoh=new Set();
   for(const bw of c.bowl){ if(bw.wkts<4) continue;
+    let gotA=false;
     for(const k of keys){
       const vals=[...new Set(rs.filter(r=>r.bowler===bw.name).map(r=>r.tags[k]).filter(Boolean))];
       for(const v of vals){
+        if(gotA)break;
         const I=rs.filter(r=>r.bowler===bw.name&&r.tags[k]===v), O=rs.filter(r=>r.bowler===bw.name&&r.tags[k]!==v);
-        const wi=I.filter(r=>r.wicket).length, wo=O.filter(r=>r.wicket).length;
+        const wi=I.filter(isBwWkt).length, wo=O.filter(isBwWkt).length;
         if(wi<3||wo<2) continue;
         const ri=I.reduce((a,r)=>a+r.runs,0), ro=O.reduce((a,r)=>a+r.runs,0);
         const ai=ri/wi, ao=ro/wo; if(ao/Math.max(ai,0.5)<2) continue;
+        const pn=pronoun(bw.name), pp=pn==="she"?"her":pn==="it"?"its":"his";
+        const sigA=bw.name+"|"+[...new Set(I.map(r=>r.batter))].sort().join(",");
+        if(seenCoh.has(sigA))continue; seenCoh.add(sigA); gotA=true;
         out.push({k:"A",s:(ao/Math.max(ai,0.5))*Math.log(1+wi),
           t:bw.name+" has taken "+bw.wkts+" wickets. "+wi+" of them have been "+lbl(k,v)+". "+
-            (ri===0?"Against "+lbl(k,v)+" he has taken those wickets without conceding a run. Against everybody else he averages "+r1(ao)+".":
+            (ri===0?"Against "+lbl(k,v)+" "+pn+" has taken those wickets without conceding a run. Everybody else costs "+pp+" "+r1(ao)+".":
              "Against "+lbl(k,v)+" the bowling average is "+r1(ai)+". Against everybody else it is "+r1(ao)+"."),
           d:wi+" wickets for "+ri+" in the cohort, "+wo+" for "+ro+" outside it"});
       }}}
@@ -135,6 +146,8 @@ function curiosities(){
       const ai=I.reduce((a,r)=>a+r.runs,0)/wi, ao=O.reduce((a,r)=>a+r.runs,0)/wo;
       const hi=Math.max(ai,ao), lo=Math.min(ai,ao)||.5; if(hi/lo<1.8) continue;
       const L1=lbl(k,v);
+      const sigF="F|"+[...new Set(I.map(r=>r.batter))].sort().join(",");
+      if(seenCoh.has(sigF))continue; seenCoh.add(sigF);
       out.push({k:"F",s:(hi/lo)*1.2,t:L1.charAt(0).toUpperCase()+L1.slice(1)+" average "+r1(ai)+" in this competition. Everybody else averages "+r1(ao)+".",
         d:wi+" dismissals in the cohort, "+wo+" outside it"});
     }}
@@ -178,7 +191,7 @@ function vHome(){
        '</b><br>'+esc(m.result?m.result.text:"")+' &nbsp;·&nbsp; <a href="#/match/'+esc(m.id)+'">full scorecard</a></p>'; }
   if(cs.length){ h+='<h2 class="sec">Statistically true, and nobody asked</h2>';
     cs.forEach(f=>h+='<div class="fact"><p>'+esc(f.t)+'</p><div class="d">'+esc(f.d)+"</div></div>");
-    h+='<p style="margin-top:16px"><a href="#/curiosities">Every curiosity</a></p>'; }
+    h+='<p style="margin-top:16px"><a href="#/curiosities">Every one of them</a></p>'; }
   return h;
 }
 function vResults(){
