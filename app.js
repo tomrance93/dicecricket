@@ -156,6 +156,10 @@ function ladder(){
 /* ---------- views ---------- */
 let SITE={name:"Dice Cricket",tagline:"",footer:"",nav:[]}, PAGES={};
 const navKey=(n,i)=>n.type==="home"?"":n.type==="page"?("p/"+n.file):n.type;
+/* a generated page takes its heading from its menu title, so renaming it in
+   site.json renames it everywhere */
+const navTitle=(type,fallback)=>{ const n=(SITE.nav||[]).find(x=>x.type===type);
+  return (n&&n.title)?n.title:fallback; };
 function tblLadder(){
   const rw=ladder();
   if(!(L.matches||[]).length) return '<div class="empty">No fixtures completed yet. The table fills itself the moment a result is published.</div>';
@@ -179,7 +183,7 @@ function vHome(){
 }
 function vResults(){
   const ms=(L.matches||[]).slice().reverse();
-  let h='<h1 class="page">Results</h1>';
+  let h='<h1 class="page">'+esc(navTitle("results","Results"))+'</h1>';
   if(!ms.length) return h+'<div class="empty">Nothing played yet.</div>';
   h+='<div class="tw"><table><thead><tr><th>Round</th><th>Fixture</th><th>Result</th><th></th></tr></thead><tbody>';
   ms.forEach(m=>h+="<tr><td>"+esc(m.round)+"</td><td>"+esc(team(m.teams[0]).name)+" v "+esc(team(m.teams[1]).name)+
@@ -202,7 +206,7 @@ function vMatch(id){
   return h;
 }
 function vClubs(){
-  let h='<h1 class="page">The clubs</h1><div class="grid">';
+  let h='<h1 class="page">'+esc(navTitle("clubs","Clubs"))+'</h1><div class="grid">';
   L.teams.forEach(t=>h+='<a class="card" href="#/club/'+t.id+'"><h3>'+esc(t.name)+'</h3><span class="m">'+esc(t.short)+" · "+t.players.length+" players</span></a>");
   return h+"</div>";
 }
@@ -245,9 +249,9 @@ function vPlayer(name){
 }
 function vRecords(){
   const c=careers(rows());
-  if(!c.bat.length) return '<h1 class="page">Records</h1><div class="empty">The record book opens with the first ball of the season.</div>';
+  if(!c.bat.length) return '<h1 class="page">'+esc(navTitle("records","Records"))+'</h1><div class="empty">The record book opens with the first ball of the season.</div>';
   const bat=c.bat.slice().sort((a,b)=>b.runs-a.runs), bowl=c.bowl.slice().sort((a,b)=>b.wkts-a.wkts||a.conc-b.conc);
-  let h='<h1 class="page">Records</h1>';
+  let h='<h1 class="page">'+esc(navTitle("records","Records"))+'</h1>';
   h+='<div class="tw"><table><caption>Batting</caption><thead><tr><th>Batter</th><th class="n">R</th><th class="n">B</th><th class="n">Outs</th><th class="n">Avg</th><th class="n">HS</th><th class="n">Appeals</th><th class="n">Survived</th></tr></thead><tbody>';
   bat.forEach(x=>h+='<tr><td><a href="#/player/'+slug(x.name)+'">'+esc(x.name)+'</a></td><td class="n">'+x.runs+'</td><td class="n">'+x.balls+
     '</td><td class="n">'+x.outs+'</td><td class="n">'+(x.outs?r1(x.runs/x.outs):"—")+'</td><td class="n">'+x.hs+'</td><td class="n">'+x.app+'</td><td class="n g">'+x.surv+"</td></tr>");
@@ -259,13 +263,13 @@ function vRecords(){
 }
 function vCur(){
   const cs=curiosities();
-  let h='<h1 class="page">Curiosities</h1><p class="lede">Every line below is true, derived from the actual rolls, and of no use to anybody.</p>';
+  let h='<h1 class="page">'+esc(navTitle("curiosities","Curiosities"))+'</h1><p class="lede">Every line below is true, derived from the actual rolls, and of no use to anybody.</p>';
   if(!cs.length) return h+'<div class="empty">The engine needs about two completed fixtures before the cohorts mean anything.</div>';
   cs.forEach(f=>h+='<div class="fact"><p>'+esc(f.t)+'</p><div class="d">'+esc(f.d)+"</div></div>");
   return h;
 }
 function vEps(){
-  let h='<h1 class="page">Episodes</h1>';
+  let h='<h1 class="page">'+esc(navTitle("episodes","Episodes"))+'</h1>';
   if(!EPS.length) return h+'<div class="empty">No episodes listed yet. Add them in <code>episodes.json</code>.</div>';
   h+='<ul class="eps">';
   EPS.forEach(e=>h+='<li><span class="n">'+esc(e.number)+'</span><a href="'+esc(e.url)+'" rel="noopener">'+esc(e.title)+
