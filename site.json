@@ -1,0 +1,46 @@
+{
+ "name": "Dice Cricket",
+ "tagline": "A fictional cricket league decided entirely by two dice.",
+ "footer": "Every result on this site was decided by two dice rolled on camera.\n\nThe boxed game, **Rolling the Pitch**, is in preparation.",
+ "nav": [
+  {
+   "title": "Home",
+   "type": "home"
+  },
+  {
+   "title": "Results",
+   "type": "results"
+  },
+  {
+   "title": "Clubs",
+   "type": "clubs"
+  },
+  {
+   "title": "Records",
+   "type": "records"
+  },
+  {
+   "title": "Curiosities",
+   "type": "curiosities"
+  },
+  {
+   "title": "Episodes",
+   "type": "episodes"
+  },
+  {
+   "title": "Rolling the Pitch",
+   "type": "page",
+   "file": "rolling-the-pitch"
+  },
+  {
+   "title": "The Game",
+   "type": "page",
+   "file": "the-game"
+  },
+  {
+   "title": "About",
+   "type": "page",
+   "file": "about"
+  }
+ ]
+}

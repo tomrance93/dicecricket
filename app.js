@@ -7,6 +7,42 @@ const r1=n=>(Math.round(n*10)/10).toFixed(1);
 const team=id=>L.teams.find(t=>t.id===id);
 const slug=n=>encodeURIComponent(n);
 
+/* ---- a small markdown renderer: headings, bold, italic, links, images,
+        lists, blockquotes, rules, inline code. No dependency, no CDN. ---- */
+function inline(t){
+  return esc(t)
+    .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g,'<img src="$2" alt="$1">')
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,'<a href="$2" rel="noopener">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g,"$1<em>$2</em>")
+    .replace(/`([^`]+)`/g,"<code>$1</code>");
+}
+function md(src){
+  const out=[]; const lines=String(src||"").replace(/\r/g,"").split("\n");
+  let para=[], list=null;
+  const flushP=()=>{ if(para.length){ out.push("<p>"+inline(para.join(" "))+"</p>"); para=[]; } };
+  const flushL=()=>{ if(list){ out.push("</"+list+">"); list=null; } };
+  for(const raw of lines){
+    const l=raw.trim();
+    if(!l){ flushP(); flushL(); continue; }
+    if(/^(-{3,}|\*{3,})$/.test(l)){ flushP(); flushL(); out.push("<hr>"); continue; }
+    const hm=l.match(/^(#{1,4})\s+(.*)$/);
+    if(hm){ flushP(); flushL();
+      const n=hm[1].length, cls=n===1?' class="page"':n===2?' class="sec"':"";
+      out.push("<h"+(n===1?1:n)+cls+">"+inline(hm[2])+"</h"+(n===1?1:n)+">"); continue; }
+    if(/^>\s?/.test(l)){ flushP(); flushL(); out.push("<blockquote>"+inline(l.replace(/^>\s?/,""))+"</blockquote>"); continue; }
+    const um=l.match(/^[-*+]\s+(.*)$/), om=l.match(/^\d+[.)]\s+(.*)$/);
+    if(um||om){ flushP(); const want=um?"ul":"ol";
+      if(list&&list!==want) flushL();
+      if(!list){ list=want; out.push("<"+want+">"); }
+      out.push("<li>"+inline((um||om)[1])+"</li>"); continue; }
+    flushL(); para.push(l);
+  }
+  flushP(); flushL();
+  return out.join("\n");
+}
+
+
 /* ---- derive ball rows from the exported logs ---- */
 function rows(){
   const out=[];
@@ -118,8 +154,8 @@ function ladder(){
 }
 
 /* ---------- views ---------- */
-const NAV=[["","Home"],["results","Results"],["clubs","Clubs"],["records","Records"],
-           ["curiosities","Curiosities"],["episodes","Episodes"],["rules","The Game"]];
+let SITE={name:"Dice Cricket",tagline:"",footer:"",nav:[]}, PAGES={};
+const navKey=(n,i)=>n.type==="home"?"":n.type==="page"?("p/"+n.file):n.type;
 function tblLadder(){
   const rw=ladder();
   if(!(L.matches||[]).length) return '<div class="empty">No fixtures completed yet. The table fills itself the moment a result is published.</div>';
@@ -131,7 +167,7 @@ function tblLadder(){
 function vHome(){
   const cs=curiosities().slice(0,3), ms=(L.matches||[]).slice(-1);
   let h='<h1 class="page">'+esc(L.season)+'</h1>';
-  h+='<p class="lede">Six clubs. Thirty fixtures. Every run and every wicket decided by two dice, rolled on camera, and recorded here ball by ball.</p>';
+  h+='<div class="lede">'+md(PAGES["home"]||"")+"</div>";
   h+=tblLadder();
   if(ms.length){ const m=ms[0];
     h+='<h2 class="sec">Latest result</h2><p><b>'+esc(team(m.teams[0]).name)+" v "+esc(team(m.teams[1]).name)+
@@ -236,32 +272,38 @@ function vEps(){
     '</a><span class="muted small">'+esc(e.date||"")+"</span></li>");
   return h+"</ul>";
 }
-function vRules(){
-  return '<h1 class="page">How it works</h1>'+
-  '<p class="lede">Two dice, five wickets, and no skill whatsoever. The game is a descendant of pencil cricket, played in Britain since before the war.</p>'+
-  '<h2 class="sec">The batting die</h2><p>1, 2, 3, 4 and 6 are runs. A 5 is an appeal.</p>'+
-  '<h2 class="sec">The bowling die</h2><p>1 bowled, 2 caught, 3 lbw, 4 run out, 5 not out, 6 stumped.</p>'+
-  '<h2 class="sec">The match</h2><p>Five wickets an innings, two innings each side. The follow-on is available at a lead of sixty. The side batting fourth stops the moment it passes the target.</p>'+
-  '<h2 class="sec">Why some players behave oddly</h2><p>Every character in this competition has a dice profile of their own. None of them are published. Work them out from the record book.</p>'+
-  '<h2 class="sec">Rolling the Pitch</h2><p>The boxed version is in preparation. It ships with blank cards, because the point of the game is that you choose who is batting.</p>';
+function vPage(file){
+  const src=PAGES[file];
+  if(src==null) return '<div class="empty">No page called <code>'+esc(file)+'.md</code> in <code>data/pages/</code>.</div>';
+  return '<article class="prose">'+md(src)+"</article>";
 }
 function route(){
   const p=(location.hash||"#/").replace(/^#\/?/,"").split("/").map(decodeURIComponent);
   const k=p[0]||"";
-  document.querySelectorAll("nav.main a").forEach(a=>a.classList.toggle("on",a.dataset.k===k));
+  const active=k==="p"?("p/"+p[1]):k;
+  document.querySelectorAll("nav.main a").forEach(a=>a.classList.toggle("on",a.dataset.k===active));
   const v=k===""?vHome():k==="results"?vResults():k==="match"?vMatch(p[1]):k==="clubs"?vClubs():
           k==="club"?vClub(p[1]):k==="player"?vPlayer(p[1]):k==="records"?vRecords():
-          k==="curiosities"?vCur():k==="episodes"?vEps():k==="rules"?vRules():vHome();
+          k==="curiosities"?vCur():k==="episodes"?vEps():k==="p"?vPage(p[1]):vHome();
   $("#view").innerHTML=v;
   window.scrollTo(0,0);
 }
+const grab=async(u,d)=>{ try{ const r=await fetch(u,{cache:"no-store"});
+  if(!r.ok) throw 0; return u.endsWith(".json")?await r.json():await r.text(); }catch(e){ return d; } };
 async function start(){
-  $("nav.main").innerHTML=NAV.map(n=>'<a href="#/'+n[0]+'" data-k="'+n[0]+'">'+n[1]+"</a>").join("");
-  try{ L=await (await fetch("data/league.json",{cache:"no-store"})).json(); }
-  catch(e){ $("#view").innerHTML='<div class="empty">Could not load <code>data/league.json</code>.</div>'; return; }
-  try{ EPS=await (await fetch("data/episodes.json",{cache:"no-store"})).json(); }catch(e){ EPS=[]; }
+  SITE=await grab("data/site.json",SITE);
+  for(const n of SITE.nav||[]) if(n.type==="page") PAGES[n.file]=await grab("data/pages/"+n.file+".md","");
+  PAGES["home"]=await grab("data/pages/home.md","");
+  $(".brand").textContent=SITE.name||"Dice Cricket";
+  document.title=SITE.name||"Dice Cricket";
+  $("#foot").innerHTML=md(SITE.footer||"");
+  $("nav.main").innerHTML=(SITE.nav||[]).map(n=>{ const k=navKey(n);
+    return '<a href="#/'+k+'" data-k="'+esc(k)+'">'+esc(n.title)+"</a>"; }).join("");
+  L=await grab("data/league.json",null);
+  if(!L){ $("#view").innerHTML='<div class="empty">Could not load <code>data/league.json</code>.</div>'; return; }
+  EPS=await grab("data/episodes.json",[]);
   L.matches=L.matches||[];
-  $("#seasonSub").textContent=L.season+" · updated "+(L.generated||"");
+  $("#seasonSub").textContent=(L.season||"")+(L.generated?" · updated "+L.generated:"");
   if(L.demo){ const b=document.createElement("div"); b.className="demo";
     b.textContent="Demonstration data. This season was simulated to show the site working. Replace data/league.json with your first real export and this notice disappears.";
     $("nav.main").after(b); }
