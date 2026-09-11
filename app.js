@@ -53,7 +53,7 @@ function rows(){
         const p=t.players.find(x=>x.name===e.name);
         out.push({match:m.id,round:m.round,inn:i+1,batTeam:inn.team,batter:e.name,
           tags:(p&&p.tags)||{},bowler:e.bw,roll:e.r,appeal:e.kind!=="r",
-          survived:e.kind==="surv",wicket:e.kind==="w",how:e.how||null,
+          survived:e.kind==="surv",wicket:e.kind==="w",how:e.how||null,fielder:e.f||null,
           runs:e.kind==="r"?(e.v||0):0});
       }
     });
@@ -61,100 +61,170 @@ function rows(){
   return out;
 }
 function careers(rs){
-  const b={},w={};
+  const b={},w={},fl={};
   for(const r of rs){
-    const x=b[r.batter]||(b[r.batter]={name:r.batter,team:r.batTeam,runs:0,balls:0,outs:0,app:0,surv:0,scored:[],hs:0,cur:0});
+    const x=b[r.batter]||(b[r.batter]={name:r.batter,team:r.batTeam,runs:0,balls:0,outs:0,app:0,surv:0,
+      scored:[],hs:0,cur:0,ducks:0,inns:new Set()});
+    x.inns.add(r.match+"/"+r.inn);
     x.runs+=r.runs; x.balls++; x.cur+=r.runs;
-    if(r.wicket){x.outs++; if(x.cur>x.hs)x.hs=x.cur; x.cur=0;}
+    if(r.wicket){x.outs++; if(x.cur>x.hs)x.hs=x.cur; if(x.cur===0)x.ducks++; x.cur=0;}
     if(r.appeal)x.app++; if(r.survived)x.surv++; if(r.runs>0)x.scored.push(r.runs);
     const y=w[r.bowler]||(w[r.bowler]={name:r.bowler,wkts:0,balls:0,conc:0});
     y.balls++; y.conc+=r.runs; if(isBwWkt(r))y.wkts++;
+    if(r.fielder&&r.wicket){const z=fl[r.fielder]||(fl[r.fielder]={name:r.fielder,ct:0});z.ct++;}
   }
-  Object.values(b).forEach(x=>{ if(x.cur>x.hs)x.hs=x.cur; });
-  return {bat:Object.values(b),bowl:Object.values(w)};
+  Object.values(b).forEach(x=>{ if(x.cur>x.hs)x.hs=x.cur; x.i=x.inns.size; delete x.inns; });
+  return {bat:Object.values(b),bowl:Object.values(w),field:Object.values(fl)};
 }
+/* ---------- the statistician ---------- */
+const teamsList=()=>(typeof ROSTER!=="undefined"&&ROSTER?ROSTER.teams:(typeof L!=="undefined"&&L?L.teams:[]));
 const LBL={
- kind:{person:"people",animal:"animals",character:"fictional characters",abstract:"abstractions"},
- era:{ancient:"figures from antiquity",medieval:"medieval figures","early-modern":"early modern figures",
-      modern:"figures of the modern age",living:"the currently living",eternal:"the timeless"},
- origin:{europe:"Europeans",asia:"Asians",africa:"Africans",americas:"those from the Americas",nowhere:"those from nowhere"},
+ kind:{person:"human batsmen",animal:"animals",character:"fictional batsmen",abstract:"abstract concepts"},
+ era:{ancient:"batsmen of antiquity",medieval:"medieval batsmen","early-modern":"batsmen of the early modern period",
+      modern:"batsmen of the modern era",living:"batsmen still living",eternal:"batsmen of no fixed era"},
+ origin:{europe:"European batsmen",asia:"Asian batsmen",africa:"African batsmen",
+         americas:"batsmen from the Americas",nowhere:"batsmen of no fixed abode"},
  state:{living:"the living",dead:"the dead",undead:"the undead",missing:"the missing",fictional:"the fictional"},
- field:{cricket:"cricketers",ruler:"heads of state",letters:"writers",music:"musicians",science:"scientists",
-        wild:"wild animals",military:"military men",screen:"film stars",stage:"performers",food:"cooks",
-        football:"footballers",flight:"aviators",mystic:"mystics",childrens:"children's characters",finance:"financial instruments"},
- sex:{m:"men",f:"women",n:"the ungendered"}};
-function plural(v){v=String(v); if(/[^aeiou]y$/.test(v))return v.slice(0,-1)+"ies";
-  if(/(s|x|z|ch|sh)$/.test(v))return v+"es"; return v+"s";}
+ field:{cricket:"professional cricketers",ruler:"heads of state",letters:"men and women of letters",
+        music:"musicians",science:"scientists",wild:"wild animals",military:"military men",
+        screen:"film stars",stage:"performers",food:"cooks",football:"footballers",flight:"aviators",
+        mystic:"mystics",childrens:"children's characters",finance:"financial instruments"}};
+const COHORT_KEYS=["kind","origin","state","field"];
+const MIN_HOLDERS=3;
+const plural=v=>{v=String(v);if(/[^aeiou]y$/.test(v))return v.slice(0,-1)+"ies";
+  if(/(s|x|z|ch|sh)$/.test(v))return v+"es";return v+"s";};
 const lbl=(k,v)=>(LBL[k]&&LBL[k][v])||plural(v);
-
 const isBwWkt=r=>r.wicket&&r.how&&r.how.indexOf("run out")<0;
-function pronoun(n){for(const t of L.teams){const p=t.players.find(x=>x.name===n);
+function pronoun(n){for(const t of teamsList()){const p=t.players.find(x=>x.name===n);
   if(p&&p.tags)return p.tags.sex==="f"?"she":p.tags.sex==="n"?"it":"he";}return "he";}
-function curiosities(){
-  const rs=rows(); if(rs.length<30) return [];
-  const c=careers(rs), keys=["kind","era","origin","state","field","sex"], out=[];
+const poss=n=>{const p=pronoun(n);return p==="she"?"her":p==="it"?"its":"his";};
+const av=n=>(Math.round(n*100)/100).toFixed(2);
+const HOWTYPE=t=>{t=String(t||"");
+  if(t.indexOf("lbw")===0)return "leg before";
+  if(t.indexOf("c and b")===0)return "caught and bowled";
+  if(t.indexOf("c ")===0)return "caught";
+  if(t.indexOf("st ")===0)return "stumped";
+  if(t.indexOf("run out")===0)return "run out";
+  if(t.indexOf("hit wicket")===0)return "hit wicket";
+  if(t.indexOf("b ")===0)return "bowled";return t;};
+const NUM=["no","one","two","three","four","five","six","seven","eight","nine","ten",
+  "eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen","eighteen","nineteen","twenty"];
+const word=n=>(n<=20?NUM[n]:String(n));
+
+function buildFacts(rs,c){
+  const out=[];
+  if(rs.length<40) return out;
+  /* which tag values are held by enough different batsmen to be a cohort at all */
+  const holders={};
+  for(const k of COHORT_KEYS){holders[k]={};
+    for(const r of rs){const v=r.tags[k];if(!v)continue;(holders[k][v]=holders[k][v]||new Set()).add(r.batter);}}
+  const bigEnough=(k,v)=>holders[k][v]&&holders[k][v].size>=MIN_HOLDERS;
   const seenCoh=new Set();
-  for(const bw of c.bowl){ if(bw.wkts<4) continue;
-    let gotA=false;
-    for(const k of keys){
+
+  /* A. a bowler's record against one kind of batsman */
+  for(const bw of c.bowl){ if(bw.wkts<4)continue; let got=false;
+    for(const k of COHORT_KEYS){ if(got)break;
       const vals=[...new Set(rs.filter(r=>r.bowler===bw.name).map(r=>r.tags[k]).filter(Boolean))];
-      for(const v of vals){
-        if(gotA)break;
-        const I=rs.filter(r=>r.bowler===bw.name&&r.tags[k]===v), O=rs.filter(r=>r.bowler===bw.name&&r.tags[k]!==v);
-        const wi=I.filter(isBwWkt).length, wo=O.filter(isBwWkt).length;
-        if(wi<3||wo<2) continue;
-        const ri=I.reduce((a,r)=>a+r.runs,0), ro=O.reduce((a,r)=>a+r.runs,0);
-        const ai=ri/wi, ao=ro/wo; if(ao/Math.max(ai,0.5)<2) continue;
-        const pn=pronoun(bw.name), pp=pn==="she"?"her":pn==="it"?"its":"his";
-        const sigA=bw.name+"|"+[...new Set(I.map(r=>r.batter))].sort().join(",");
-        if(seenCoh.has(sigA))continue; seenCoh.add(sigA); gotA=true;
+      for(const v of vals){ if(got)break; if(!bigEnough(k,v))continue;
+        const I=rs.filter(r=>r.bowler===bw.name&&r.tags[k]===v),O=rs.filter(r=>r.bowler===bw.name&&r.tags[k]!==v);
+        const wi=I.filter(isBwWkt).length,wo=O.filter(isBwWkt).length; if(wi<3||wo<2)continue;
+        const ri=I.reduce((a,r)=>a+r.runs,0),ro=O.reduce((a,r)=>a+r.runs,0);
+        const ai=ri/wi,ao=ro/wo; if(ao/Math.max(ai,0.5)<2)continue;
+        const sig=bw.name+"|"+[...new Set(I.map(r=>r.batter))].sort().join(","); if(seenCoh.has(sig))continue;
+        seenCoh.add(sig); got=true;
         out.push({k:"A",s:(ao/Math.max(ai,0.5))*Math.log(1+wi),
-          t:bw.name+" has taken "+bw.wkts+" wickets. "+wi+" of them have been "+lbl(k,v)+". "+
-            (ri===0?"Against "+lbl(k,v)+" "+pn+" has taken those wickets without conceding a run. Everybody else costs "+pp+" "+r1(ao)+".":
-             "Against "+lbl(k,v)+" the bowling average is "+r1(ai)+". Against everybody else it is "+r1(ao)+"."),
-          d:wi+" wickets for "+ri+" in the cohort, "+wo+" for "+ro+" outside it"});
+          t:bw.name+" averages "+av(ai)+" against "+lbl(k,v)+" and "+av(ao)+" against everybody else. "+
+            word(wi).charAt(0).toUpperCase()+word(wi).slice(1)+" of "+poss(bw.name)+" "+word(bw.wkts)+" wickets have come against "+lbl(k,v)+".",
+          d:wi+" wickets for "+ri+" against the cohort, "+wo+" for "+ro+" against the rest"});
       }}}
+
+  /* B. first innings against second */
+  const bs=[];
   for(const x of c.bat){
-    const F=rs.filter(r=>r.batter===x.name&&r.inn<=2), S=rs.filter(r=>r.batter===x.name&&r.inn>=3);
-    const fo=F.filter(r=>r.wicket).length, so=S.filter(r=>r.wicket).length; if(fo<3||so<3) continue;
-    const a1=F.reduce((a,r)=>a+r.runs,0)/fo, a2=S.reduce((a,r)=>a+r.runs,0)/so;
-    const hi=Math.max(a1,a2), lo=Math.min(a1,a2)||0.5; if(hi/lo<2.5) continue;
-    out.push({k:"B",s:(hi/lo)*1.6,t:x.name+" averages "+r1(a1)+" in the first half of a match and "+r1(a2)+" in the second.",
-      d:"innings 1 and 2: "+F.reduce((a,r)=>a+r.runs,0)+" runs from "+fo+" dismissals. Innings 3 and 4: "+S.reduce((a,r)=>a+r.runs,0)+" from "+so});
+    const F=rs.filter(r=>r.batter===x.name&&r.inn<=2),S=rs.filter(r=>r.batter===x.name&&r.inn>=3);
+    const fo=F.filter(r=>r.wicket).length,so=S.filter(r=>r.wicket).length; if(fo<3||so<3)continue;
+    const a1=F.reduce((a,r)=>a+r.runs,0)/fo,a2=S.reduce((a,r)=>a+r.runs,0)/so;
+    const hi=Math.max(a1,a2),lo=Math.min(a1,a2)||0.5; if(hi/lo<2.5)continue;
+    bs.push({x,a1,a2,fo,so,ratio:hi/lo,
+      fr:F.reduce((a,r)=>a+r.runs,0),sr:S.reduce((a,r)=>a+r.runs,0)});
   }
-  for(const x of c.bat){ if(x.runs<12||!x.scored.length) continue;
-    const set=[...new Set(x.scored)]; if(set.length!==1) continue;
-    out.push({k:"C",s:9,t:x.name+" has scored "+x.runs+" runs. Every one of them has come in "+(set[0]===1?"singles":set[0]+"s")+
-      ". He has faced "+x.balls+" deliveries and scored off "+x.scored.length+" of them.",d:"all scoring shots returned "+set[0]});
+  bs.sort((p,q)=>q.ratio-p.ratio);
+  bs.forEach((z,i)=>out.push({k:"B",s:z.ratio*1.6,
+    t:z.x.name+" averages "+av(z.a1)+" batting in the first innings of a match and "+av(z.a2)+" in the second."+
+      (i===0?" That is the widest disparity in the competition.":""),
+    d:"first innings "+z.fr+" runs from "+z.fo+" dismissals, second innings "+z.sr+" from "+z.so}));
+
+  /* C. a batsman who scores in only one denomination */
+  for(const x of c.bat){
+    const sc=rs.filter(r=>r.batter===x.name&&r.runs>0).map(r=>r.runs);
+    if(x.runs<12||!sc.length)continue; const set=[...new Set(sc)]; if(set.length!==1)continue;
+    out.push({k:"C",s:9,
+      t:"Every one of "+x.name+"'s "+x.runs+" runs has come in "+(set[0]===1?"singles":set[0]+"s")+
+        ". "+pronoun(x.name).charAt(0).toUpperCase()+pronoun(x.name).slice(1)+" has faced "+x.balls+
+        " deliveries and scored off "+sc.length+" of them.",d:"all scoring shots returned "+set[0]});
   }
-  for(const x of c.bat){ if(x.outs<4) continue;
-    const hs={}; rs.filter(r=>r.batter===x.name&&r.wicket).forEach(r=>hs[r.how]=(hs[r.how]||0)+1);
-    const top=Object.entries(hs).sort((a,b)=>b[1]-a[1])[0]; if(top[1]/x.outs<0.7) continue;
-    out.push({k:"D",s:6*(top[1]/x.outs),t:x.name+" has been dismissed "+x.outs+" times. "+top[1]+" of them "+top[0]+".",
+
+  /* D. a batsman who goes the same way every time */
+  for(const x of c.bat){ if(x.outs<4)continue;
+    const hs={};rs.filter(r=>r.batter===x.name&&r.wicket).forEach(r=>{const t=HOWTYPE(r.how);hs[t]=(hs[t]||0)+1;});
+    const top=Object.entries(hs).sort((a,b)=>b[1]-a[1])[0]; if(!top||top[1]/x.outs<0.7)continue;
+    out.push({k:"D",s:6*(top[1]/x.outs),
+      t:"Of "+x.name+"'s "+x.outs+" dismissals, "+word(top[1])+" have been "+top[0]+".",
       d:Object.entries(hs).map(e=>e[1]+" "+e[0]).join(", ")});
   }
-  const tA=rs.filter(r=>r.appeal).length, tS=rs.filter(r=>r.survived).length, lg=tA?tS/tA:0;
-  for(const x of c.bat){ if(x.app<4) continue; const rt=x.surv/x.app;
-    if(rt>=Math.max(.34,lg*2.2)) out.push({k:"E",s:8*rt*Math.log(1+x.app),
-      t:x.name+" has faced "+x.app+" appeals and survived "+x.surv+" of them. The rest of the league survives "+Math.round(lg*100)+" per cent.",
-      d:"survival "+Math.round(rt*100)+"% against a league rate of "+Math.round(lg*100)+"% over "+tA+" appeals"});
-  }
-  for(const k of keys){ const vals=[...new Set(rs.map(r=>r.tags[k]).filter(Boolean))];
-    for(const v of vals){
-      const I=rs.filter(r=>r.tags[k]===v), O=rs.filter(r=>r.tags[k]!==v);
-      const wi=I.filter(r=>r.wicket).length, wo=O.filter(r=>r.wicket).length; if(wi<4||wo<4) continue;
-      const ai=I.reduce((a,r)=>a+r.runs,0)/wi, ao=O.reduce((a,r)=>a+r.runs,0)/wo;
-      const hi=Math.max(ai,ao), lo=Math.min(ai,ao)||.5; if(hi/lo<1.8) continue;
+
+  /* E. survival against the appeal */
+  const tA=rs.filter(r=>r.appeal).length,tS=rs.filter(r=>r.survived).length,lg=tA?tS/tA:0;
+  const ss=c.bat.filter(x=>x.app>=4).map(x=>({x,rate:x.surv/x.app})).sort((p,q)=>q.rate-p.rate);
+  ss.forEach((z,i)=>{ if(z.rate<Math.max(0.34,lg*2.2))return;
+    out.push({k:"E",s:8*z.rate*Math.log(1+z.x.app),
+      t:z.x.name+" has survived "+word(z.x.surv)+" of the "+z.x.app+" appeals against "+
+        (pronoun(z.x.name)==="she"?"her":pronoun(z.x.name)==="it"?"it":"him")+
+        ", a rate of "+Math.round(z.rate*100)+" per cent against a competition figure of "+Math.round(lg*100)+"."+
+        (i===0?" No batsman survives more often.":""),
+      d:z.x.surv+" from "+z.x.app+" appeals, competition rate "+Math.round(lg*100)+"% from "+tA});
+  });
+
+  /* F. how a whole class of batsman fares */
+  for(const k of COHORT_KEYS){
+    const vals=[...new Set(rs.map(r=>r.tags[k]).filter(Boolean))];
+    for(const v of vals){ if(!bigEnough(k,v))continue;
+      const I=rs.filter(r=>r.tags[k]===v),O=rs.filter(r=>r.tags[k]!==v);
+      const wi=I.filter(r=>r.wicket).length,wo=O.filter(r=>r.wicket).length; if(wi<5||wo<5)continue;
+      const ai=I.reduce((a,r)=>a+r.runs,0)/wi,ao=O.reduce((a,r)=>a+r.runs,0)/wo;
+      const hi=Math.max(ai,ao),lo=Math.min(ai,ao)||0.5; if(hi/lo<1.8)continue;
+      const sig="F|"+[...new Set(I.map(r=>r.batter))].sort().join(","); if(seenCoh.has(sig))continue; seenCoh.add(sig);
       const L1=lbl(k,v);
-      const sigF="F|"+[...new Set(I.map(r=>r.batter))].sort().join(",");
-      if(seenCoh.has(sigF))continue; seenCoh.add(sigF);
-      out.push({k:"F",s:(hi/lo)*1.2,t:L1.charAt(0).toUpperCase()+L1.slice(1)+" average "+r1(ai)+" in this competition. Everybody else averages "+r1(ao)+".",
-        d:wi+" dismissals in the cohort, "+wo+" outside it"});
+      out.push({k:"F",s:(hi/lo)*1.2,
+        t:L1.charAt(0).toUpperCase()+L1.slice(1)+" average "+av(ai)+" in this competition. Everybody else averages "+av(ao)+".",
+        d:holders[k][v].size+" batsmen in the cohort, "+wi+" dismissals against "+wo});
     }}
-  const CAP={A:4,B:3,C:3,D:3,E:4,F:3}, used={}, seen=new Set();
+
+  /* G. the leading fielder */
+  const ft=(c.field||[]).slice().sort((a,b)=>b.ct-a.ct)[0];
+  if(ft&&ft.ct>=4) out.push({k:"G",s:4+ft.ct/3,
+    t:ft.name+" has held "+word(ft.ct)+" catches, more than any other fielder in the competition.",
+    d:ft.ct+" catches"});
+
+  /* H. the highest individual score */
+  const hs=c.bat.slice().sort((a,b)=>b.hs-a.hs)[0];
+  if(hs&&hs.hs>=40) out.push({k:"H",s:5,
+    t:hs.name+"'s "+hs.hs+" remains the highest individual score of the season.",d:"from "+hs.i+" innings"});
+
+  /* J. ducks */
+  const dk=c.bat.slice().sort((a,b)=>b.ducks-a.ducks)[0];
+  if(dk&&dk.ducks>=3) out.push({k:"J",s:4.5,
+    t:dk.name+" has been dismissed without scoring on "+word(dk.ducks)+" occasions, more than anyone else.",
+    d:dk.ducks+" ducks in "+dk.i+" innings"});
+
+  const CAP={A:3,B:2,C:2,D:2,E:2,F:2,G:1,H:1,J:1},used={},seen=new Set();
   return out.sort((a,b)=>b.s-a.s).filter(f=>{ if(seen.has(f.t))return false;
-    used[f.k]=used[f.k]||0; if(used[f.k]>=(CAP[f.k]||2))return false; used[f.k]++; seen.add(f.t); return true; });
+    used[f.k]=used[f.k]||0; if(used[f.k]>=(CAP[f.k]||2))return false;
+    used[f.k]++; seen.add(f.t); return true; }).slice(0,14);
 }
+
+function curiosities(){const rs=rows();return buildFacts(rs,careers(rs));}
+
 function ladder(){
   const t={}; L.teams.forEach(x=>t[x.id]={id:x.id,n:x.name,p:0,w:0,l:0,d:0,f:0,a:0});
   for(const m of L.matches||[]){
